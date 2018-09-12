@@ -34,8 +34,11 @@ public:
 
     void Off();
 
-    void heaterOn() { heat_on=true; digitalWrite(HEATER_PIN, HIGH);}
-    void heaterOff() { heat_on=false; digitalWrite(HEATER_PIN, LOW);}
+//    void heaterOn() { heat_on=true; digitalWrite(HEATER_PIN, HIGH);}
+//    void heaterOff() { heat_on=false; digitalWrite(HEATER_PIN, LOW);}
+    void heaterOn() { heat_on=true; analogWrite(HEATER_PIN, 255);}
+    void heaterOff() { heat_on=false; analogWrite(HEATER_PIN, 0);}
+
     void fanOn() { fan_on=true; digitalWrite(FAN_PIN, LOW);}
     void fanOff() { fan_on=false; digitalWrite(FAN_PIN, HIGH);}
     void steamOn() { /*digitalWrite(STEAM_PIN, HIGH);*/}

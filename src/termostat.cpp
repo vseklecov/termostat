@@ -90,7 +90,7 @@ namespace Termostat {
         //{
             tp.trigger(TermostatProcess::WARMING);
             tp.cur_state = TermostatProcess::WARMING;
-            Setpoint = tp.tempCamWarming;
+            Setpoint = tp.tempCamWarming>>7;
             myPID.SetMode(AUTOMATIC);
         //}
     }
@@ -165,7 +165,7 @@ void TermostatProcess::warming()
     {
         fsm->trigger(FRYING);
         cur_state = FRYING;
-        Setpoint = tempCamFrying;
+        Setpoint = tempCamFrying>>7;
     }
 
     /*if (ds.getTempCamera() >= (tempCamWarming + (2<<7)))
@@ -185,7 +185,7 @@ void TermostatProcess::frying()
     {
         fsm->trigger(COOKING);
         cur_state = COOKING;
-        Setpoint = tempCamCooking;
+        Setpoint = tempCamCooking>>7;
     }
     /*if (ds.getTempCamera() >= (tempCamFrying + (2<<7)))
         heaterOff();

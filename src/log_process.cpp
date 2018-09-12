@@ -9,6 +9,7 @@ extern DSProcess ds;
 extern NTCProbe probe;
 extern TermostatProcess tp;
 extern int regim();
+extern double Setpoint, Input, Output;
 
 void LogProcess::setup()
 {
@@ -33,5 +34,11 @@ void LogProcess::service()
     Serial.print(digitalRead(SPIN1));
     Serial.print("; PIN7 ");
     Serial.print(digitalRead(SPIN2));
+    Serial.print("; Setpoint ");
+    Serial.print(Setpoint);
+    Serial.print("; Input ");
+    Serial.print(Input);
+    Serial.print("; Output ");
+    Serial.print(Output);
     Serial.println(';');
 }
