@@ -1,59 +1,80 @@
 #ifndef __TERMOSTAT_H__
 #define __TERMOSTAT_H__
 
-// #include <Arduino.h>
-// #include <Fsm.h>
+#include <Arduino.h>
+#include <Fsm.h>
+#include <ProcessScheduler.h>
 
-// #define HEAT        1
-// #define COOKING     2
-// #define END         3 
+#include "config.h"
+#include "ds_process.h"
+#include "ntc.h"
 
-// State state_stop(&heater_off, &check_heat, NULL);
-// State state_heat(&heater_on, &check_min_temp, NULL);
-// State state_cooking(NULL, &check_cooking_temp, NULL);
-// State state_end(&heater_off, NULL, NULL);
+#define NOTE    (523)
+typedef void (* f_void)(void);
 
-// Fsm fsm_termostat(&state_stop);
+class TermostatProcess: public Process
+{
+public:
 
-// void heater_off()
-// {
+    enum states {
+        STOP = 0,
+        HEATING,
+        WARMING,
+        FRYING,
+        COOKING,
+        END
+    };
 
-// }
+    TermostatProcess(Scheduler&, ProcPriority, unsigned int, DSProcess&, NTCProbe&);
+    ~TermostatProcess();
 
-// void heater_on()
-// {
+    void service() { fsm->run_machine(); }
 
-// }
+    uint16_t temp_cam_begin; // Температура камеры в начале 1/128 градуса С
 
-// void check_heat()
-// {
-//     if (true)
-//         fsm_termostat.trigger(HEAT);
-// }
+    void Off();
 
-// void check_min_temp()
-// {
-//     if (true)
-//         fsm_termostat.trigger(COOKING);
-// }
+    void heaterOn() { heat_on=true; digitalWrite(HEATER_PIN, HIGH);}
+    void heaterOff() { heat_on=false; digitalWrite(HEATER_PIN, LOW);}
+    void fanOn() { fan_on=true; digitalWrite(FAN_PIN, LOW);}
+    void fanOff() { fan_on=false; digitalWrite(FAN_PIN, HIGH);}
+    void steamOn() { /*digitalWrite(STEAM_PIN, HIGH);*/}
+    void steamOff() { /*digitalWrite(STEAM_PIN, LOW);*/}
+    void smokeOn() { /*digitalWrite(SMOKE_PIN, HIGH);*/}
+    void smokeOff() { /*digitalWrite(SMOKE_PIN, LOW);*/}
 
-// void check_cooking_temp()
-// {
-//     if (true)
-//         fsm_termostat.trigger(END);
-// }
+    bool isTempWarming() { return ds.getTempCamera() >= tempCamWarming;}
+    bool isHeating() { return (ds.getTempCamera() - temp_cam_begin) > (5<<7);}
+    void warming();
+    void frying();
+    void cooking();
 
-// void termostat_setup()
-// {
-//     fsm_termostat.add_transition(&state_stop, &state_heat, HEAT, NULL);
-//     fsm_termostat.add_transition(&state_heat, &state_cooking, COOKING, NULL);
-//     fsm_termostat.add_transition(&state_cooking, &state_end, END, NULL);
-    
-// }
+    void trigger(int ev) { fsm->trigger(ev); }
 
-// void termostat_service()
-// {
-//     fsm_termostat.run_machine();
-// }
+    int16_t tempCamWarming = 60<<7;
+    int16_t tempCamFrying = 85<<7;
+    int16_t tempCamCooking = 75<<7;
+
+    int8_t tempProbeFrying = 37;
+    int8_t tempProbeCooking = 60;
+    int8_t tempProbeEnd = 70;
+
+    enum states cur_state;
+    boolean fan_on;
+    boolean heat_on;
+
+private:
+    DSProcess &ds;
+    NTCProbe &probe;
+
+    State *state_stop;
+    State *state_heating;
+    State *state_warming;
+    State *state_frying;
+    State *state_cooking;
+    State *state_end;
+
+    Fsm *fsm;
+};
 
 #endif

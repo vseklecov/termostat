@@ -1,234 +1,154 @@
 #include <Arduino.h>
-#include <OneWire.h>
-
-#define REQUIRESNEW     false
-#define REQUIRESALARMS  false
-#include <DallasTemperature.h>
-
-#include <Fsm.h>
 
 #include "config.h"
 
-#define HEATING        1
-#define WARMING     2
-#define FRYING      3
-#define COOKING     4
-#define END         5 
+#include <ProcessScheduler.h>
+Scheduler sched;
 
-#define TEMP_CAM_WARMING    (50*128)
-#define TEMP_CAM_FRYING     (90*128)
-#define TEMP_CAM_COOKING    (80*128)
+#include <OneWire.h>
+OneWire ow(ONE_WIRE_BUS);
+#include <DallasTemperature.h>
+DallasTemperature dt(&ow);
 
-#define TEMP_PROBE_FRYING   (45)
-#define TEMP_PROBE_COOKING  (60)
-#define TEMP_PROBE_END      (70)
+#include "ds_process.h"
+DSProcess ds(sched, HIGH_PRIORITY, 750, &dt);
 
-volatile int16_t    temp_camera;    // Температура камеры 1/128 градуса С
-int16_t             temp_cam_begin; // Температура камеры в начале 1/128 градуса С
+#include "ntc.h"
+NTCProbe probe(sched, HIGH_PRIORITY, SERVICE_CONSTANTLY, PROBE_NTC);
 
-volatile int16_t    temp_probe;     // Температура щупа в градусах С
-uint32_t            temp_probe_raw;
-uint8_t             temp_probe_samples;
+#include "termostat.h"
+TermostatProcess tp(sched, HIGH_PRIORITY, SERVICE_SECONDLY, ds, probe);
 
-unsigned long       next_run_termostat;
+#include "log_process.h"
+LogProcess lp(sched, LOW_PRIORITY, 10000);
 
-OneWire ds(ONE_WIRE_BUS);
-DallasTemperature termometr(&ds);
-DeviceAddress termometr_camera;
+#include <PID_v1.h>
+double Setpoint, Input, Output;
+double Kp=2, Ki=5, Kd=1;
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, P_ON_M, DIRECT);
+int WindowSize = 5000;
+unsigned long windowStartTime;
 
-void buzzer()
-{
-    Serial.println("Поджигай дымогенератор");
-}
+/******* Change PWM frecuency ARDUINO MEGA 2560***** 
+	Function:     setPwmFrequencyMEGA2560(pin,divisior); 
+ This pins are together, can not modify frequency individually,same timmer):
+ pin 13, 4
+ pin 12, 11
+ pin 10, 9
+ pin 5, 3, 2
+ pin 8, 7, 6
+For pins 13,4 (DO NOT MODIFY pins 13 & 4 is the one on which rely 
+all time functions in Arduino: i.e., if you change the frequency of this pins, 
+function like delay() or millis() will continue to work but at a different timescale
+quicker or slower!))
+    Divisor     Frequency
+   	1 	 	    62500 Hz
+	2 	 	    7812.5 Hz
+	3 	 	    976.5625 Hz  <--DEFAULT Diecimila bootloader
+	4 	 	    244.140625 Hz
+	5 	 	    61.03515625 Hz
 
-void all_off()
-{
-    digitalWrite(HEATER_PIN, LOW);
-    digitalWrite(FAN_PIN, LOW);
-    digitalWrite(STEAM_PIN, LOW);
-    digitalWrite(SMOKE_PIN, LOW);
-}
+For pins 2 to 13 EXCEPT 13,4:
+    Divisor     Frequency
+	1 	        31372.55 Hz
+	2	        3921.16  Hz
+	3	        490.20    Hz   <--DEFAULT Diecimila bootloader
+	4	        122.55    Hz
+	5	        30.610    Hz
+*/
 
-void on_stop()
-{
-    temp_cam_begin = temp_camera;
-    all_off();
-    Serial.println("Stop");
-}
-
-void on_heating()
-{
-    digitalWrite(HEATER_PIN, HIGH);
-    digitalWrite(FAN_PIN, HIGH);
-    Serial.println("Heating");
-}
-
-void on_warming()
-{
-    digitalWrite(HEATER_PIN, HIGH);
-    digitalWrite(FAN_PIN, HIGH);
-    Serial.println("Warming");
-}
-
-void on_frying()
-{
-    digitalWrite(HEATER_PIN, HIGH);
-    digitalWrite(FAN_PIN, HIGH);
-    digitalWrite(SMOKE_PIN, HIGH);
-    buzzer();
-    Serial.println("Frying");
-}
-
-void off_frying()
-{
-    digitalWrite(SMOKE_PIN, LOW);
-}
-
-void on_cooking()
-{
-    digitalWrite(HEATER_PIN, HIGH);
-    digitalWrite(FAN_PIN, HIGH);
-    digitalWrite(STEAM_PIN, HIGH);
-    Serial.println("Cooking");
-}
-
-void on_end()
-{
-    all_off();
-    Serial.println("End");
-}
-
-void check_start();
-void check_warming();
-
-void warming();
-void frying();
-void cooking();
-
-State state_stop(&on_stop, &check_start, NULL);
-State state_heating(&on_heating, &check_warming, NULL);
-State state_warming(&on_warming, &warming, NULL);
-State state_frying(&on_frying, &frying, &off_frying);
-State state_cooking(&on_cooking, &cooking, NULL);
-State state_end(&on_end, NULL, NULL);
-
-Fsm fsm_termostat(&state_stop);
-
-void check_start()
-{
-    int button = digitalRead(BUTTON_PIN);
-    if ((temp_camera - temp_cam_begin) > (5*128) || button > 0)
-        fsm_termostat.trigger(HEATING);
-}
-
-void check_warming()
-{
-    if (temp_camera >= TEMP_CAM_WARMING)
-        fsm_termostat.trigger(WARMING);
-}
-
-void warming()
-{
-    if (temp_probe >= TEMP_PROBE_FRYING)
-        fsm_termostat.trigger(FRYING);
-    if (temp_camera >= TEMP_CAM_WARMING)
-        digitalWrite(HEATER_PIN, LOW);
-    else if (temp_camera <= (TEMP_CAM_WARMING - (10*128)))
-        digitalWrite(HEATER_PIN, HIGH);
-}
-
-void frying()
-{
-    if (temp_probe >= TEMP_PROBE_COOKING)
-        fsm_termostat.trigger(COOKING);
-    if (temp_camera >= TEMP_CAM_FRYING)
-        digitalWrite(HEATER_PIN, LOW);
-    else if (temp_camera <= (TEMP_CAM_FRYING - (10*128)))
-        digitalWrite(HEATER_PIN, HIGH);
-}
-
-void cooking()
-{
-    if (temp_probe >= TEMP_PROBE_END)
-        fsm_termostat.trigger(END);
-    if (temp_camera >= TEMP_CAM_COOKING)
+void setPwmFrequencyMEGA2560(int pin, int divisor) {
+    byte mode;
+    
+    switch(divisor)
     {
-        digitalWrite(HEATER_PIN, LOW);
-        digitalWrite(STEAM_PIN, LOW);
-    } else if (temp_camera <= (TEMP_CAM_COOKING - (10*128)))
-    {
-        digitalWrite(HEATER_PIN, HIGH);
-        digitalWrite(STEAM_PIN, HIGH);
+    case 1: mode = 0x01; break;
+    case 2: mode = 0x02; break;
+    case 3: mode = 0x03; break;
+    case 4: mode = 0x04; break;
+    case 5: mode = 0x05; break;
+    case 6: mode = 0x06; break;
+    case 7: mode = 0x07; break;
+    default: return;
+    }
+      
+    switch(pin) 
+    {	  
+    case 2:  TCCR3B = TCCR3B  & 0b11111000 | mode; break;
+    case 3:  TCCR3B = TCCR3B  & 0b11111000 | mode; break;
+    case 4:  TCCR0B = TCCR0B  & 0b11111000 | mode; break;
+    case 5:  TCCR3B = TCCR3B  & 0b11111000 | mode; break;
+    case 6:  TCCR4B = TCCR4B  & 0b11111000 | mode; break;
+    case 7:  TCCR4B = TCCR4B  & 0b11111000 | mode; break;
+    case 8:  TCCR4B = TCCR4B  & 0b11111000 | mode; break;
+    case 9:  TCCR2B = TCCR0B  & 0b11111000 | mode; break;
+    case 10: TCCR2B = TCCR2B  & 0b11111000 | mode; break;
+    case 11: TCCR1B = TCCR1B  & 0b11111000 | mode; break;  
+    case 12: TCCR1B = TCCR1B  & 0b11111000 | mode; break;  
+    case 13: TCCR0B = TCCR0B  & 0b11111000 | mode; break;
+    default: return;
     }
 }
 
-void termostat_setup()
+void beep(int note)
 {
-    fsm_termostat.add_transition(&state_stop, &state_heating, HEATING, NULL);
-    fsm_termostat.add_transition(&state_heating, &state_warming, WARMING, NULL);
-    fsm_termostat.add_transition(&state_warming, &state_frying, FRYING, NULL);
-    fsm_termostat.add_transition(&state_frying, &state_cooking, COOKING, NULL);
-    fsm_termostat.add_transition(&state_cooking, &state_end, END, NULL);
-}
-
-void termostat_service()
-{
-    fsm_termostat.run_machine();
+    tone(BUZZER_PIN, note, 250);
 }
 
 void setup() {
-    Serial.begin(115200);
 
-    termostat_setup();
+    Serial.begin(9600);
 
-    termometr.begin();
-    if (termometr.getDS18Count() > 0)
-        termometr.getAddress(termometr_camera, 0);
-    if (termometr.isConnected(termometr_camera))
-        termometr.setResolution(12);
-
-    termometr.setWaitForConversion(false);
-    termometr.requestTemperatures();
-    termometr.setWaitForConversion(true);
-
-    analogReference(DEFAULT);
-    pinMode(PROBE_NTC, INPUT);
-    temp_probe_raw = analogRead(PROBE_NTC);
-    temp_probe_samples = 1;
-    // Конвертировать значение АЦП в температуру
-    //temp_probe = 0;
-
+    pinMode(ONE_WIRE_BUS, INPUT);
+    dt.begin();
+    while (dt.getDS18Count() == 0)
+    {
+        Serial.println("Setup DS18b20 not found");
+        delay(1000);
+    }    
+    ds.add(true);
+    probe.add(true);
+    tp.add(true);
+    lp.add(true);
+    
     pinMode(FAN_PIN, OUTPUT);
-    pinMode(HEATER_PIN, OUTPUT);
-    pinMode(STEAM_PIN, OUTPUT);
-    pinMode(SMOKE_PIN, OUTPUT);
-    pinMode(BUTTON_PIN, INPUT);
 
-    next_run_termostat = millis() + 1000;
+    setPwmFrequencyMEGA2560(HEATER_PIN, 5);
+    pinMode(HEATER_PIN, OUTPUT);
+    
+    //pinMode(STEAM_PIN, OUTPUT);
+    //pinMode(SMOKE_PIN, OUTPUT);
+    pinMode(BUZZER_PIN, OUTPUT);
+
+    //pinMode(BUTTON_PIN, INPUT);
+    pinMode(SPIN1, INPUT);
+    pinMode(SPIN2, INPUT);
+
+    myPID.SetOutputLimits(0, WindowSize);
+    windowStartTime = millis();
 }
 
 void loop() {
 
-    temp_probe_raw += analogRead(PROBE_NTC);
-    if (temp_probe_samples == 127)
+    if (millis() - windowStartTime > WindowSize)
+        windowStartTime += WindowSize;
+    switch (tp.cur_state)
     {
-        temp_probe = temp_probe_raw >> 7;
-        temp_probe_samples = 0;
-        temp_probe_raw = temp_probe;
-        // Конвертировать значение АЦП в температуру
-        // temp_probe = ;
-    }
-    temp_probe_samples++;
-    
-    if (millis() >= next_run_termostat)
-    {
-        temp_camera = termometr.getTemp(termometr_camera);
-        termometr.setWaitForConversion(false);
-        termometr.requestTemperatures();
-        termometr.setWaitForConversion(true);
-        
-        termostat_service();
-        next_run_termostat = millis() + 1000;
-    }
+        case tp.WARMING:
+        case tp.FRYING:
+        case tp.COOKING:
+            Input = ds.getTempCamera();
+            if (myPID.Compute())
+            {
+                if (Output < millis() - windowStartTime)
+                    tp.heaterOn();
+                else
+                    tp.heaterOff();
+            }
+            break;
+        default:
+            break;
+    }; 
+    sched.run();
     delay(10);
 }
