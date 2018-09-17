@@ -6,7 +6,6 @@
 #include <ProcessScheduler.h>
 
 #include "config.h"
-#include "ds_process.h"
 #include "ntc.h"
 
 #define NOTE    (523)
@@ -25,19 +24,19 @@ public:
         END
     };
 
-    TermostatProcess(Scheduler&, ProcPriority, unsigned int, DSProcess&, NTCProbe&);
+    TermostatProcess(Scheduler&, ProcPriority, unsigned int, double&, double&, NTCProbe&);
     ~TermostatProcess();
 
     void service() { fsm->run_machine(); }
 
-    uint16_t temp_cam_begin; // Температура камеры в начале 1/128 градуса С
-
     void Off();
+    int regim();
 
-//    void heaterOn() { heat_on=true; digitalWrite(HEATER_PIN, HIGH);}
-//    void heaterOff() { heat_on=false; digitalWrite(HEATER_PIN, LOW);}
-    void heaterOn() { heat_on=true; analogWrite(HEATER_PIN, 255);}
-    void heaterOff() { heat_on=false; analogWrite(HEATER_PIN, 0);}
+    void heaterOn() { heater_power = 100; digitalWrite(HEATER_PIN, HIGH);}
+    void heaterOff() { heater_power = 0; digitalWrite(HEATER_PIN, LOW);}
+    void heaterWarming() { setting = tempCamWarming; }
+    void heaterFrying() { setting = tempCamFrying; }
+    void heaterCooking() { setting = tempCamCooking; }
 
     void fanOn() { fan_on=true; digitalWrite(FAN_PIN, LOW);}
     void fanOff() { fan_on=false; digitalWrite(FAN_PIN, HIGH);}
@@ -46,29 +45,34 @@ public:
     void smokeOn() { /*digitalWrite(SMOKE_PIN, HIGH);*/}
     void smokeOff() { /*digitalWrite(SMOKE_PIN, LOW);*/}
 
-    bool isTempWarming() { return ds.getTempCamera() >= tempCamWarming;}
-    bool isHeating() { return (ds.getTempCamera() - temp_cam_begin) > (5<<7);}
-    void warming();
-    void frying();
-    void cooking();
+    bool isTempWarming() { return temp_camera >= (tempCamWarming - 15); }
+    bool isWarmed() { return probe.getTempC() >= tempProbeFrying; }
+    bool isFried() { return probe.getTempC() >= tempProbeCooking; }
+    bool isCooked() { return probe.getTempC() >= tempProbeEnd; }
 
-    void trigger(int ev) { fsm->trigger(ev); }
+    int initEEPROM();
+    int readEEPROM();
+    int writeEEPROM();
 
-    int16_t tempCamWarming = 60<<7;
-    int16_t tempCamFrying = 85<<7;
-    int16_t tempCamCooking = 75<<7;
-
-    int8_t tempProbeFrying = 37;
-    int8_t tempProbeCooking = 60;
-    int8_t tempProbeEnd = 70;
+    void trigger(int ev);
 
     enum states cur_state;
     boolean fan_on;
-    boolean heat_on;
+    int8_t heater_power;
 
 private:
-    DSProcess &ds;
+
+    double &temp_camera;
+    double &setting;
     NTCProbe &probe;
+
+    int8_t tempCamWarming;
+    int8_t tempCamFrying;
+    int8_t tempCamCooking;
+
+    int8_t tempProbeFrying;
+    int8_t tempProbeCooking;
+    int8_t tempProbeEnd;
 
     State *state_stop;
     State *state_heating;

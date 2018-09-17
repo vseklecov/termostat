@@ -12,6 +12,9 @@
 #define FAN_PIN         8
 // Управление ТЭНом
 #define HEATER_PIN      11
+#define HEATER_ON       bitSet(PORTB, 3)
+#define HEATER_OFF      bitClear(PORTB, 3)
+
 // Управление парогенератором
 //#define STEAM_PIN       4
 // Управление дымогенератором
@@ -23,5 +26,9 @@
 // Выбор режима
 #define SPIN1    4
 #define SPIN2    7
+
+#define LENGTH_PARAM_PID (sizeof(double)*3)
+#define LENGTH_PARAM_TERMOSTAT (sizeof(int8_t)*6)
+#define LENGTH_PARAM_EEPROM (LENGTH_PARAM_TERMOSTAT+LENGTH_PARAM_PID)
 
 #endif

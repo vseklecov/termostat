@@ -1,21 +1,13 @@
-#include <PID_v1.h>
+#include <EEPROM.h>
 
 #include "termostat.h"
 #include "config.h"
-#include "ds_process.h"
 
 extern TermostatProcess tp;
-extern int16_t  temp_probe;
-extern void beep(int);
-extern double Setpoint;
-extern PID myPID;
 
-int regim()
+void beep(int note)
 {
-    int result = 0;
-    result |= digitalRead(SPIN2);
-    result |= digitalRead(SPIN1) << 1;
-    return result;
+    tone(BUZZER_PIN, note, 250);
 }
 
 namespace Termostat {
@@ -35,14 +27,14 @@ namespace Termostat {
 
     void on_warming()
     {
-        tp.heaterOn();
+        tp.heaterWarming();
         tp.fanOn();
         Serial.println("Warming");
     }
 
     void on_frying()
     {
-        tp.heaterOn();
+        tp.heaterFrying();
         tp.fanOn();
         tp.smokeOn();
         beep(NOTE);
@@ -56,7 +48,7 @@ namespace Termostat {
 
     void on_cooking()
     {
-        tp.heaterOn();
+        tp.heaterCooking();
         tp.fanOn();
         tp.steamOn();
         Serial.println("Cooking");
@@ -70,49 +62,43 @@ namespace Termostat {
 
     void stop()
     {
-        //int button = digitalRead(BUTTON_PIN);
-        //if (tp.isHeating() || button > 0)
-        if (regim() == 1)
-        {
+        if (tp.regim() > 0)
             tp.trigger(TermostatProcess::HEATING);
-            tp.cur_state = TermostatProcess::HEATING;
-        }
     }
 
     void heating()
     {
-        if (regim() == 0)
-        {
+        if (tp.regim() == 0)
             tp.trigger(TermostatProcess::END);
-            tp.cur_state = TermostatProcess::END;
-        }
-        //if (tp.isTempWarming())
-        //{
+        if (tp.isTempWarming())
             tp.trigger(TermostatProcess::WARMING);
-            tp.cur_state = TermostatProcess::WARMING;
-            Setpoint = tp.tempCamWarming>>7;
-            myPID.SetMode(AUTOMATIC);
-        //}
     }
 
     void warming()
     {
-        tp.warming();
+        if (tp.regim() == 0)
+            tp.trigger(TermostatProcess::END);
+        if (tp.isWarmed() || tp.regim() == 2)
+            tp.trigger(TermostatProcess::FRYING);
     }
 
     void frying()
     {
-        tp.frying();
+        if (tp.regim() == 0)
+            tp.trigger(TermostatProcess::END);
+        if (tp.isFried() || tp.regim() == 3)
+            tp.trigger(TermostatProcess::COOKING);
     }
 
     void cooking()
     {
-        tp.cooking();
+        if (tp.isCooked() || tp.regim() == 0)
+            tp.trigger(TermostatProcess::END);
     }
 }
 
-TermostatProcess::TermostatProcess(Scheduler &manager, ProcPriority pr, unsigned int period, DSProcess &d, NTCProbe &p)
-        : Process(manager, pr, period), ds(d), probe(p)
+TermostatProcess::TermostatProcess(Scheduler &manager, ProcPriority pr, unsigned int period, double &t, double &s, NTCProbe &p)
+        : Process(manager, pr, period), temp_camera(t), setting(s), probe(p)
 {
     state_stop = new State(&Termostat::on_stop, &Termostat::stop, NULL);
     state_heating = new State(&Termostat::on_heating, &Termostat::heating, NULL);
@@ -131,8 +117,6 @@ TermostatProcess::TermostatProcess(Scheduler &manager, ProcPriority pr, unsigned
     fsm->add_transition(state_frying, state_cooking, COOKING, NULL);
     fsm->add_transition(state_frying, state_end, END, NULL);
     fsm->add_transition(state_cooking, state_end, END, NULL);
-
-    temp_cam_begin = ds.getTempCamera();
 }
 
 TermostatProcess::~TermostatProcess()
@@ -146,6 +130,12 @@ TermostatProcess::~TermostatProcess()
     free(fsm);
 }
 
+void TermostatProcess::trigger(int ev)
+{
+    fsm->trigger(ev);
+    tp.cur_state = (enum states) ev;
+}
+
 void TermostatProcess::Off()
 {
     heaterOff();
@@ -154,67 +144,50 @@ void TermostatProcess::Off()
     smokeOff();
 }
 
-void TermostatProcess::warming()
+int TermostatProcess::regim()
 {
-    if (regim() == 0)
-    {
-        fsm->trigger(END);
-        cur_state = END;
-    }
-    if (probe.getTempC() >= tempProbeFrying || regim() == 2)
-    {
-        fsm->trigger(FRYING);
-        cur_state = FRYING;
-        Setpoint = tempCamFrying>>7;
-    }
-
-    /*if (ds.getTempCamera() >= (tempCamWarming + (2<<7)))
-        heaterOff();
-    else if (ds.getTempCamera() <= (tempCamWarming - (3<<7)))
-        heaterOn();*/
+    int result = 0;
+    result |= digitalRead(SPIN2);
+    result |= digitalRead(SPIN1) << 1;
+    return result;
 }
 
-void TermostatProcess::frying()
+int TermostatProcess::readEEPROM()
 {
-    if (regim() == 0)
-    {
-        fsm->trigger(END);
-        cur_state = END;
-    }
-    if (probe.getTempC() >= tempProbeCooking || regim() == 3)
-    {
-        fsm->trigger(COOKING);
-        cur_state = COOKING;
-        Setpoint = tempCamCooking>>7;
-    }
-    /*if (ds.getTempCamera() >= (tempCamFrying + (2<<7)))
-        heaterOff();
-    else if (ds.getTempCamera() <= (tp.tempCamFrying - (3<<7)))
-        heaterOn();*/
+    int i=0;
+
+    tempCamWarming = EEPROM.read(i++);
+    tempCamFrying = EEPROM.read(i++);
+    tempCamCooking = EEPROM.read(i++);
+    tempProbeFrying = EEPROM.read(i++);
+    tempProbeCooking = EEPROM.read(i++);
+    tempProbeEnd = EEPROM.read(i++);
+
+    return i;
 }
 
-
-void TermostatProcess::cooking()
+int TermostatProcess::initEEPROM()
 {
-    if (regim() == 0)
-    {
-        fsm->trigger(END);
-        cur_state = END;
-    }
-    if (probe.getTempC() >= tempProbeEnd || regim() == 0)
-    {
-        fsm->trigger(END);
-        cur_state = END;
-    }
-    /*if (ds.getTempCamera() >= (tempCamCooking + (2<<7)))
-    {
-        heaterOff();
-        steamOff();
-    } else if (ds.getTempCamera() <= (tempCamCooking - (3<<7)))
-    {
-        heaterOn();
-        steamOn();
-    }*/
+    tempCamWarming = 60;
+    tempCamFrying = 85;
+    tempCamCooking = 75;
 
+    tempProbeFrying = 37;
+    tempProbeCooking = 60;
+    tempProbeEnd = 70;
+    return writeEEPROM();
 }
 
+int TermostatProcess::writeEEPROM()
+{
+    int i = 0;
+
+    EEPROM.write(i++, tempCamWarming);
+    EEPROM.write(i++, tempCamFrying);
+    EEPROM.write(i++, tempCamCooking);
+    EEPROM.write(i++, tempProbeFrying);
+    EEPROM.write(i++, tempProbeCooking);
+    EEPROM.write(i++, tempProbeEnd);
+
+    return i;
+}

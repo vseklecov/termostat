@@ -1,33 +1,44 @@
+
 #include <Arduino.h>
+#include <EEPROM.h>
+
+#include <SerialCommand.h>
+SerialCommand sCmd;
 
 #include "config.h"
+
+#include <MsTimer2.h>
 
 #include <ProcessScheduler.h>
 Scheduler sched;
 
 #include <OneWire.h>
 OneWire ow(ONE_WIRE_BUS);
+#define REQUIRESNEW false
+#define REQUIRESALARMS false
 #include <DallasTemperature.h>
 DallasTemperature dt(&ow);
+DeviceAddress term_addr;
 
-#include "ds_process.h"
-DSProcess ds(sched, HIGH_PRIORITY, 750, &dt);
+//#include "ds_process.h"
+//DSProcess ds(sched, HIGH_PRIORITY, 750, &dt);
+double Setpoint, Input, Output;
+// ”праление мощностью “ЁЌа по алгоритму Ѕрезенхема
+volatile int8_t power = 0;
+void powerControl();
 
 #include "ntc.h"
 NTCProbe probe(sched, HIGH_PRIORITY, SERVICE_CONSTANTLY, PROBE_NTC);
 
 #include "termostat.h"
-TermostatProcess tp(sched, HIGH_PRIORITY, SERVICE_SECONDLY, ds, probe);
+TermostatProcess tp(sched, HIGH_PRIORITY, SERVICE_SECONDLY, Input, Setpoint, probe);
 
 #include "log_process.h"
-LogProcess lp(sched, LOW_PRIORITY, 10000);
+LogProcess lp(sched, LOW_PRIORITY, 5000);
 
 #include <PID_v1.h>
-double Setpoint, Input, Output;
-double Kp = 2, Ki = 5, Kd = 1;
-PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, P_ON_M, DIRECT);
-int WindowSize = 5000;
-unsigned long windowStartTime;
+double Kp, Ki, Kd;
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, P_ON_E, DIRECT);
 
 /****** Change PWM frecuency ARDUINO UNO***** 
 Function:  		setPwmFrequencyUNO(pin,divisor);
@@ -54,7 +65,7 @@ can not modify individually,same timer)
 	6	        122.55   Hz
 	7	        30.610   Hz
 */
-void setPwmFrequencyUNO(int pin, int divisor)
+/*void setPwmFrequencyUNO(int pin, int divisor)
 {
     byte mode;
     if (pin == 5 || pin == 6 || pin == 9 || pin == 10)
@@ -81,11 +92,11 @@ void setPwmFrequencyUNO(int pin, int divisor)
         }
         if (pin == 5 || pin == 6)
         {
-            TCCR0B = TCCR0B & 0b11111000 | mode;
+            TCCR0B = (TCCR0B & 0b11111000) | mode;
         }
         else
         {
-            TCCR1B = TCCR1B & 0b11111000 | mode;
+            TCCR1B = (TCCR1B & 0b11111000) | mode;
         }
     }
     else if (pin == 3 || pin == 11)
@@ -116,9 +127,9 @@ void setPwmFrequencyUNO(int pin, int divisor)
         default:
             return;
         }
-        TCCR2B = TCCR2B & 0b11111000 | mode;
+        TCCR2B = (TCCR2B & 0b11111000) | mode;
     }
-}
+}*/
 
 /******** Change PWM frecuency ARDUINO MEGA 2560***** 
 	Function:     setPwmFrequencyMEGA2560(pin,divisior); 
@@ -221,9 +232,62 @@ For pins 2 to 13 EXCEPT 13,4:
     }
 }*/
 
-void beep(int note)
+void setKp();
+void setKi();
+void setKd();
+void getParam();
+void unrecognized(const char*);
+
+void writeEEPROM()
 {
-    tone(BUZZER_PIN, note, 250);
+    unsigned int i;
+    int8_t sum;
+
+    i = tp.writeEEPROM();
+    EEPROM.put(i, Kp);
+    i += sizeof(Kp);
+    EEPROM.put(i, Ki);
+    i += sizeof(Ki);
+    EEPROM.put(i, Kd);
+    sum = 0;
+    for (i = 0; i < LENGTH_PARAM_EEPROM; i++)
+        sum += EEPROM.read(i);
+    EEPROM.write(i, sum ^ 0xE5);
+}
+
+void readEEPROM()
+{
+    unsigned int i = 0;
+    int8_t sum = 0;
+
+    for (; i < LENGTH_PARAM_EEPROM; i++)
+        sum += EEPROM.read(i);
+    if ((sum ^ 0xE5) == EEPROM.read(i))
+    {
+        i = tp.readEEPROM();
+        Kp = EEPROM.get(i, Kd);
+        i += sizeof(Kp);
+        Ki = EEPROM.get(i, Kd);
+        i += sizeof(Ki);
+        Kd = EEPROM.get(i, Kd);
+    }
+    else
+    {
+        i = tp.initEEPROM();
+        Kp = 20;
+        EEPROM.put(i, Kp);
+        i += sizeof(Kp);
+        Ki = 0.01;
+        EEPROM.put(i, Ki);
+        i += sizeof(Ki);
+        Kd = 10;
+        EEPROM.put(i, Kd);
+        i += sizeof(Kd);
+        sum = 0;
+        for (i = 0; i < LENGTH_PARAM_EEPROM; i++)
+            sum += EEPROM.read(i);
+        EEPROM.write(i, sum ^ 0xE5);
+    }
 }
 
 void setup()
@@ -237,52 +301,131 @@ void setup()
     {
         Serial.println("Setup DS18b20 not found");
         delay(1000);
+        dt.begin();
     }
-    ds.add(true);
+    dt.getAddress(term_addr, 0);
+    dt.setResolution(9);
+
     probe.add(true);
     tp.add(true);
     lp.add(true);
 
     pinMode(FAN_PIN, OUTPUT);
 
-    setPwmFrequencyUNO(HEATER_PIN, 7);
     pinMode(HEATER_PIN, OUTPUT);
+    //setPwmFrequencyUNO(HEATER_PIN, 7);
 
     //pinMode(STEAM_PIN, OUTPUT);
     //pinMode(SMOKE_PIN, OUTPUT);
     pinMode(BUZZER_PIN, OUTPUT);
 
-    //pinMode(BUTTON_PIN, INPUT);
     pinMode(SPIN1, INPUT);
     pinMode(SPIN2, INPUT);
 
-    //myPID.SetOutputLimits(0, WindowSize);
-    //windowStartTime = millis();
+    myPID.SetMode(AUTOMATIC);
+    readEEPROM();
+
+    sCmd.addCommand("Kp", setKp);
+    sCmd.addCommand("Ki", setKi);
+    sCmd.addCommand("Kd", setKd);
+    sCmd.addCommand("W", writeEEPROM);
+    sCmd.addCommand("GET", getParam);
+    sCmd.setDefaultHandler(unrecognized);
+
+    MsTimer2::set(100, powerControl);
+    MsTimer2::start();
 }
 
 void loop()
 {
-
-    //if (millis() - windowStartTime > WindowSize)
-    //    windowStartTime += WindowSize;
-    switch (tp.cur_state)
+    dt.requestTemperatures();
+    if (dt.isConnected(term_addr))
     {
-    case tp.WARMING:
-    case tp.FRYING:
-    case tp.COOKING:
-        Input = ds.getTempC();
-        if (myPID.Compute())
+        Input = dt.getTempC(term_addr);
+        switch (tp.cur_state)
         {
-            analogWrite(HEATER_PIN, Output);
-            // if (Output < millis() - windowStartTime)
-            //    tp.heaterOn();
-            //else
-            //    tp.heaterOff();
-        }
-        break;
-    default:
-        break;
-    };
+        case tp.WARMING:
+        case tp.FRYING:
+        case tp.COOKING:
+            if (myPID.Compute())
+            {
+                /*if (Input > Setpoint)
+                    Output = 0;
+                else if ((Setpoint-Input) > 15)
+                    Output = 255;*/
+                //analogWrite(HEATER_PIN, Output);
+                power = Output*100/255;
+            }
+            break;
+        default:
+            break;
+        };
+    }
+    else
+    {
+        dt.begin();
+        delay(1000);
+    }
     sched.run();
-    delay(10);
+    sCmd.readSerial();
+}
+
+void setKp()
+{
+    char *arg;
+
+    arg = sCmd.next();
+    if (arg != NULL)
+        Kp = atof(arg);
+}
+
+void setKi()
+{
+    char *arg;
+
+    arg = sCmd.next();
+    if (arg != NULL)
+        Ki = atof(arg);
+}
+
+void setKd()
+{
+    char *arg;
+
+    arg = sCmd.next();
+    if (arg != NULL)
+        Kd = atof(arg);
+}
+
+void getParam()
+{
+    Serial.print(Kp);
+    Serial.print("; ");
+    Serial.print(Ki);
+    Serial.print("; ");
+    Serial.print(Kd);
+    Serial.println(';');
+}
+
+void unrecognized(const char *command)
+{
+    Serial.println("What?");
+}
+
+// ”праление мощностью “ЁЌа по алгоритму Ѕрезенхема
+void powerControl()
+{
+    // power - заданна€ мощность
+    // error - ошибка
+    static int8_t error = 0;
+    int8_t reg = power - error;
+    if (reg > 50)
+    {
+        HEATER_OFF;
+        error = reg;
+    } else
+    {
+        HEATER_ON;
+        error = reg - 100;
+    }
 }
