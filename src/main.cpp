@@ -236,7 +236,7 @@ void setKp();
 void setKi();
 void setKd();
 void getParam();
-void unrecognized(const char*);
+void unrecognized(const char *);
 
 void writeEEPROM()
 {
@@ -262,32 +262,32 @@ void readEEPROM()
 
     for (; i < LENGTH_PARAM_EEPROM; i++)
         sum += EEPROM.read(i);
-    if ((sum ^ 0xE5) == EEPROM.read(i))
-    {
+    //if ((sum ^ 0xE5) == EEPROM.read(i))
+    //{
         i = tp.readEEPROM();
-        Kp = EEPROM.get(i, Kd);
+        Kp = EEPROM.get(i, Kp);
         i += sizeof(Kp);
-        Ki = EEPROM.get(i, Kd);
+        Ki = EEPROM.get(i, Ki);
         i += sizeof(Ki);
         Kd = EEPROM.get(i, Kd);
-    }
-    else
-    {
-        i = tp.initEEPROM();
-        Kp = 20;
-        EEPROM.put(i, Kp);
-        i += sizeof(Kp);
-        Ki = 0.01;
-        EEPROM.put(i, Ki);
-        i += sizeof(Ki);
-        Kd = 10;
-        EEPROM.put(i, Kd);
-        i += sizeof(Kd);
-        sum = 0;
-        for (i = 0; i < LENGTH_PARAM_EEPROM; i++)
-            sum += EEPROM.read(i);
-        EEPROM.write(i, sum ^ 0xE5);
-    }
+    //}
+    //else
+    //{
+    //    i = tp.initEEPROM();
+    //    Kp = 20;
+    //    EEPROM.put(i, Kp);
+    //    i += sizeof(Kp);
+    //    Ki = 0.01;
+    //    EEPROM.put(i, Ki);
+    //    i += sizeof(Ki);
+    //    Kd = 10;
+    //    EEPROM.put(i, Kd);
+    //    i += sizeof(Kd);
+    //    sum = 0;
+    //    for (i = 0; i < LENGTH_PARAM_EEPROM; i++)
+    //        sum += EEPROM.read(i);
+    //    EEPROM.write(i, sum ^ 0xE5);
+    //}
 }
 
 void setup()
@@ -322,8 +322,10 @@ void setup()
     pinMode(SPIN1, INPUT);
     pinMode(SPIN2, INPUT);
 
-    myPID.SetMode(AUTOMATIC);
     readEEPROM();
+    myPID.SetTunings(Kp, Ki, Kp);
+    myPID.SetMode(MANUAL);
+    myPID.SetOutputLimits(0, 100);
 
     sCmd.addCommand("Kp", setKp);
     sCmd.addCommand("Ki", setKi);
@@ -339,33 +341,22 @@ void setup()
 void loop()
 {
     dt.requestTemperatures();
-    if (dt.isConnected(term_addr))
+    Input = dt.getTempC(term_addr);
+    switch (tp.cur_state)
     {
-        Input = dt.getTempC(term_addr);
-        switch (tp.cur_state)
-        {
-        case tp.WARMING:
-        case tp.FRYING:
-        case tp.COOKING:
-            if (myPID.Compute())
-            {
-                /*if (Input > Setpoint)
-                    Output = 0;
-                else if ((Setpoint-Input) > 15)
-                    Output = 255;*/
-                //analogWrite(HEATER_PIN, Output);
-                power = Output*100/255;
-            }
-            break;
-        default:
-            break;
-        };
-    }
-    else
-    {
-        dt.begin();
-        delay(1000);
-    }
+    case tp.HEATING:
+    case tp.WARMING:
+    case tp.FRYING:
+    case tp.COOKING:
+        if (myPID.GetMode() == MANUAL)
+            myPID.SetMode(AUTOMATIC);
+        if (myPID.Compute())
+            power = Output;
+        break;
+    default:
+        power = 0;
+        break;
+    };
     sched.run();
     sCmd.readSerial();
 }
@@ -377,6 +368,7 @@ void setKp()
     arg = sCmd.next();
     if (arg != NULL)
         Kp = atof(arg);
+    myPID.SetTunings(Kp, Ki, Kp);
 }
 
 void setKi()
@@ -386,6 +378,7 @@ void setKi()
     arg = sCmd.next();
     if (arg != NULL)
         Ki = atof(arg);
+    myPID.SetTunings(Kp, Ki, Kp);
 }
 
 void setKd()
@@ -395,15 +388,36 @@ void setKd()
     arg = sCmd.next();
     if (arg != NULL)
         Kd = atof(arg);
+    myPID.SetTunings(Kp, Ki, Kp);
 }
 
 void getParam()
 {
+    double temp;
+    unsigned int i;
+
+    Serial.print("Kp=");
     Serial.print(Kp);
-    Serial.print("; ");
+    Serial.print("; Ki=");
     Serial.print(Ki);
-    Serial.print("; ");
+    Serial.print("; Kd=");
     Serial.print(Kd);
+    Serial.print("; EEPROM=");
+    for (i=0; i<LENGTH_PARAM_TERMOSTAT; i+=sizeof(int8_t))
+    {
+        Serial.print(EEPROM.read(i));
+        Serial.print(", ");
+    }
+    Serial.print(EEPROM.get(i, temp));
+    Serial.print(", ");
+    i += sizeof(Kp);
+    Serial.print(EEPROM.get(i, temp));
+    Serial.print(", ");
+    i += sizeof(Ki);
+    Serial.print(EEPROM.get(i, temp));
+    Serial.print(", CRC=");
+    i += sizeof(Kd);
+    Serial.print(EEPROM.read(i), HEX);
     Serial.println(';');
 }
 
@@ -412,18 +426,19 @@ void unrecognized(const char *command)
     Serial.println("What?");
 }
 
-// ”праление мощностью “ЁЌа по алгоритму Ѕрезенхема
+// ”праление мощностью “ЁЌа по алгоритму Ѕрезенхема, прерывание 10 раз в сек.
 void powerControl()
 {
     // power - заданна€ мощность
     // error - ошибка
     static int8_t error = 0;
-    int8_t reg = power - error;
-    if (reg > 50)
+    int8_t reg = power + error;
+    if (reg < 50)
     {
         HEATER_OFF;
         error = reg;
-    } else
+    }
+    else
     {
         HEATER_ON;
         error = reg - 100;

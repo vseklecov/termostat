@@ -4,6 +4,7 @@
 #include "config.h"
 
 extern TermostatProcess tp;
+extern double Input;
 
 void beep(int note)
 {
@@ -20,7 +21,7 @@ namespace Termostat {
 
     void on_heating()
     {
-        tp.heaterOn();
+        tp.heaterHeating();
         tp.fanOn();
         Serial.println("Heating");
     }
@@ -76,10 +77,26 @@ namespace Termostat {
 
     void warming()
     {
+        static unsigned long next = millis() + DELAY;
         if (tp.regim() == 0)
             tp.trigger(TermostatProcess::END);
         if (tp.isWarmed() || tp.regim() == 2)
             tp.trigger(TermostatProcess::FRYING);
+        // ƒобавл€ем по 5 градусов дл€ плавного нагрева
+        if (millis() > next) {
+            if (Input > (tp.tempCamWarming - 15))
+            {
+                tp.heaterOn(tp.tempCamWarming - 10);
+                next = millis() + DELAY;
+            }
+            if (Input > (tp.tempCamWarming - 10))
+            {
+                tp.heaterOn(tp.tempCamWarming - 5);
+                next = millis() + DELAY;
+            }
+        }
+        if (Input > (tp.tempCamWarming - 5))
+            tp.heaterOn(tp.tempCamWarming);
     }
 
     void frying()

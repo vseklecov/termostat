@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <PID_v1.h>
 
 #include "log_process.h"
 #include "ntc.h"
@@ -7,6 +8,8 @@
 extern NTCProbe probe;
 extern TermostatProcess tp;
 extern double Setpoint, Input, Output;
+extern int8_t power;
+extern PID myPID;
 
 void LogProcess::setup()
 {
@@ -17,6 +20,10 @@ void LogProcess::service()
 {
     Serial.print("State ");
     Serial.print(tp.cur_state);
+    Serial.print("; Power ");
+    Serial.print(power);
+    Serial.print("; Pid mode ");
+    Serial.print(myPID.GetMode());
     Serial.print("; Produkt ");
     Serial.print(probe.temp);
     Serial.print("; Fan ");
