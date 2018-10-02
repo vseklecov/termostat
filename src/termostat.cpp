@@ -5,6 +5,7 @@
 
 extern TermostatProcess tp;
 extern double Input;
+extern PID myPID;
 
 void beep(int note)
 {
@@ -17,6 +18,16 @@ namespace Termostat {
     {
         tp.Off();
         Serial.println("Stop");
+    }
+
+    void set_temp_warming()
+    {
+        tp.setTemp = tp.tempCamWarming;
+    }
+
+    void set_temp_frying()
+    {
+        tp.setTemp = tp.tempCamFrying;
     }
 
     void on_heating()
@@ -73,30 +84,34 @@ namespace Termostat {
             tp.trigger(TermostatProcess::END);
         if (tp.isTempWarming())
             tp.trigger(TermostatProcess::WARMING);
+        if (tp.isTempFrying())
+            tp.trigger(TermostatProcess::FRYING);
+        if (tp.isHeated())
+            tp.trigger(TermostatProcess::WAIT);
     }
 
     void warming()
     {
-        static unsigned long next = millis() + DELAY;
+        //static unsigned long next = millis() + DELAY;
         if (tp.regim() == 0)
             tp.trigger(TermostatProcess::END);
         if (tp.isWarmed() || tp.regim() == 2)
-            tp.trigger(TermostatProcess::FRYING);
-        // Добавляем по 5 градусов для плавного нагрева
-        if (millis() > next) {
-            if (Input > (tp.tempCamWarming - 15))
-            {
-                tp.heaterOn(tp.tempCamWarming - 10);
-                next = millis() + DELAY;
-            }
-            if (Input > (tp.tempCamWarming - 10))
-            {
-                tp.heaterOn(tp.tempCamWarming - 5);
-                next = millis() + DELAY;
-            }
-        }
-        if (Input > (tp.tempCamWarming - 5))
-            tp.heaterOn(tp.tempCamWarming);
+            tp.trigger(TermostatProcess::HEATING);
+        // // Добавляем по 5 градусов для плавного нагрева
+        // if (millis() > next) {
+        //     if (Input > (tp.tempCamWarming - 15))
+        //     {
+        //         tp.heaterOn(tp.tempCamWarming - 10);
+        //         next = millis() + DELAY;
+        //     }
+        //     if (Input > (tp.tempCamWarming - 10))
+        //     {
+        //         tp.heaterOn(tp.tempCamWarming - 5);
+        //         next = millis() + DELAY;
+        //     }
+        //     if (Input > (tp.tempCamWarming - 5))
+        //         tp.heaterOn(tp.tempCamWarming);
+        // }
     }
 
     void frying()
@@ -123,15 +138,20 @@ TermostatProcess::TermostatProcess(Scheduler &manager, ProcPriority pr, unsigned
     state_frying = new State(&Termostat::on_frying, &Termostat::frying, &Termostat::off_frying);
     state_cooking = new State(&Termostat::on_cooking, &Termostat::cooking, NULL);
     state_end = new State(&Termostat::on_end, NULL, NULL);
+    state_wait = new State(NULL, NULL, NULL);
 
     fsm = new Fsm(state_stop);
 
-    fsm->add_transition(state_stop, state_heating, HEATING, NULL);
+    fsm->add_transition(state_stop, state_heating, HEATING, &Termostat::set_temp_warming);
     fsm->add_transition(state_heating, state_warming, WARMING, NULL);
-    fsm->add_transition(state_heating, state_end, END, NULL);
-    fsm->add_transition(state_warming, state_frying, FRYING, NULL);
-    fsm->add_transition(state_warming, state_end, END, NULL);
+    fsm->add_transition(state_heating, state_frying, FRYING, NULL);
+    fsm->add_transition(state_heating, state_wait, WAIT, NULL);
+    fsm->add_timed_transition(state_wait, state_heating, 180000L, NULL);
+    fsm->add_transition(state_warming, state_heating, HEATING, &Termostat::set_temp_frying);
     fsm->add_transition(state_frying, state_cooking, COOKING, NULL);
+
+    fsm->add_transition(state_heating, state_end, END, NULL);
+    fsm->add_transition(state_warming, state_end, END, NULL);
     fsm->add_transition(state_frying, state_end, END, NULL);
     fsm->add_transition(state_cooking, state_end, END, NULL);
 }
@@ -207,4 +227,12 @@ int TermostatProcess::writeEEPROM()
     EEPROM.write(i++, tempProbeEnd);
 
     return i;
+}
+
+void TermostatProcess::heaterHeating()
+{
+    myPID.SetMode(MANUAL);
+    // Добавляем по 5 градусов
+    setting = min(setTemp, temp_camera + 5);
+    myPID.SetMode(AUTOMATIC);
 }

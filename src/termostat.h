@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <Fsm.h>
+#include <PID_v1.h>
 #include <ProcessScheduler.h>
 
 #include "config.h"
@@ -23,7 +24,8 @@ public:
         WARMING,
         FRYING,
         COOKING,
-        END
+        END,
+        WAIT
     };
 
     TermostatProcess(Scheduler&, ProcPriority, unsigned int, double&, double&, NTCProbe&);
@@ -36,8 +38,8 @@ public:
 
     void heaterOn(int8_t temp) { setting = temp; }
     void heaterOff() { setting = 0; digitalWrite(HEATER_PIN, LOW);}
-    void heaterHeating() { heaterOn(tempCamWarming - 20); }
-    void heaterWarming() { heaterOn(tempCamWarming - 15); }
+    void heaterHeating();
+    void heaterWarming() { heaterOn(tempCamWarming); }
     void heaterFrying() { heaterOn(tempCamFrying); }
     void heaterCooking() { heaterOn(tempCamCooking); }
 
@@ -48,7 +50,9 @@ public:
     void smokeOn() { /*digitalWrite(SMOKE_PIN, HIGH);*/}
     void smokeOff() { /*digitalWrite(SMOKE_PIN, LOW);*/}
 
-    bool isTempWarming() { return temp_camera >= (tempCamWarming - 20); }
+    bool isTempWarming() { return temp_camera >= tempCamWarming; }
+    bool isTempFrying() { return temp_camera >= tempCamFrying; }
+    bool isHeated() { return temp_camera >= setTemp; }
     bool isWarmed() { return probe.getTempC() >= tempProbeFrying; }
     bool isFried() { return probe.getTempC() >= tempProbeCooking; }
     bool isCooked() { return probe.getTempC() >= tempProbeEnd; }
@@ -62,6 +66,8 @@ public:
     enum states cur_state;
     boolean fan_on;
     int8_t heater_power;
+    int8_t setTemp;
+
 
     int8_t tempCamWarming;
     int8_t tempCamFrying;
@@ -83,6 +89,7 @@ private:
     State *state_frying;
     State *state_cooking;
     State *state_end;
+    State *state_wait;
 
     Fsm *fsm;
 };
