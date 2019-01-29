@@ -50,18 +50,21 @@ public:
     void smokeOn() { /*digitalWrite(SMOKE_PIN, HIGH);*/}
     void smokeOff() { /*digitalWrite(SMOKE_PIN, LOW);*/}
 
-    bool isTempWarming() { return temp_camera >= tempCamWarming; }
-    bool isTempFrying() { return temp_camera >= tempCamFrying; }
-    bool isHeated() { return temp_camera >= setTemp; }
-    bool isWarmed() { return probe.getTempC() >= tempProbeFrying; }
-    bool isFried() { return probe.getTempC() >= tempProbeCooking; }
-    bool isCooked() { return probe.getTempC() >= tempProbeEnd; }
+    bool isTempWarming() { return (temp_camera >= setTemp) && (setTemp == tempCamWarming); }
+    bool isTempFrying() { return (temp_camera >= setTemp) && (setTemp == tempCamFrying); }
+    bool isHeated() { return temp_camera >= setting; }
+
+    bool isWarmed();
+    bool isFried();
+    bool isCooked();
 
     int initEEPROM();
     int readEEPROM();
     int writeEEPROM();
 
     void trigger(int ev);
+
+    String getState();
 
     enum states cur_state;
     boolean fan_on;

@@ -47,7 +47,9 @@ void DSProcess::setup()
 
 void DSProcess::service()
 {
-    temp_camera = ds->getTemp(term_addr);
+    float temp = ds->getTempC(term_addr);
+    if ((temp > 0) && (temp != DEVICE_DISCONNECTED_C))
+        temp_camera = temp;
     ds->setWaitForConversion(false);
     ds->requestTemperatures();
     ds->setWaitForConversion(true);

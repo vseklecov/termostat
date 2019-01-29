@@ -9,6 +9,8 @@ SerialCommand sCmd;
 
 #include <MsTimer2.h>
 
+#include <LCD_1602_RUS.h>
+
 #include <ProcessScheduler.h>
 Scheduler sched;
 
@@ -26,6 +28,7 @@ double Setpoint, Input, Output;
 // Упраление мощностью ТЭНа по алгоритму Брезенхема
 volatile int8_t power = 0;
 void powerControl();
+void powerControl2();
 
 #include "ntc.h"
 NTCProbe probe(sched, HIGH_PRIORITY, SERVICE_CONSTANTLY, PROBE_NTC);
@@ -35,6 +38,7 @@ TermostatProcess tp(sched, HIGH_PRIORITY, SERVICE_SECONDLY, Input, Setpoint, pro
 
 #include "log_process.h"
 LogProcess lp(sched, LOW_PRIORITY, 5000);
+LCD_1602_RUS lcd(0x27, 16, 2);
 
 #include <PID_v1.h>
 double Kp, Ki, Kd;
@@ -294,6 +298,11 @@ void setup()
 {
 
     Serial.begin(9600);
+    
+    lcd.init(1, 1);
+    lcd.backlight();
+    lcd.setCursor(0,0);
+    lcd.print("Термостат v 1.0");
 
     pinMode(ONE_WIRE_BUS, INPUT);
     dt.begin();
@@ -334,7 +343,7 @@ void setup()
     sCmd.addCommand("GET", getParam);
     sCmd.setDefaultHandler(unrecognized);
 
-    MsTimer2::set(100, powerControl);
+    MsTimer2::set(100, powerControl2);
     MsTimer2::start();
 }
 
@@ -347,11 +356,17 @@ void loop()
     case tp.HEATING:
     case tp.WARMING:
     case tp.FRYING:
+    case tp.WAIT:
     case tp.COOKING:
         if (myPID.GetMode() == MANUAL)
             myPID.SetMode(AUTOMATIC);
         if (myPID.Compute())
-            power = Output;
+        {
+            if (Input > Setpoint)
+                power = 0;
+            else
+                power = Output;
+        }
         break;
     default:
         power = 0;
@@ -441,6 +456,25 @@ void powerControl()
     else
     {
         HEATER_ON;
+        error = reg - 100;
+    }
+}
+
+// Упраление мощностью двумя ТЭНами по алгоритму Брезенхема, прерывание 10 раз в сек.
+void powerControl2()
+{
+    // power - заданная мощность
+    // error - ошибка
+    static int8_t error = 0;
+    int8_t reg = power + error;
+    if (reg < 50)
+    {
+        HEATER12_OFF;
+        error = reg;
+    }
+    else
+    {
+        HEATER12_ON;
         error = reg - 100;
     }
 }

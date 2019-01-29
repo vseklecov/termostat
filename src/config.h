@@ -14,6 +14,11 @@
 #define HEATER_PIN      11
 #define HEATER_ON       bitSet(PORTB, 3)
 #define HEATER_OFF      bitClear(PORTB, 3)
+#define HEATER2_PIN     12
+#define HEATER2_ON      bitSet(PORTB, 4)
+#define HEATER2_OFF     bitClear(PORTB, 4)
+#define HEATER12_ON     (PORTB |= B11000)
+#define HEATER12_OFF    (PORTB &= B100111)
 
 // Управление парогенератором
 //#define STEAM_PIN       4
