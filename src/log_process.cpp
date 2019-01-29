@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <PID_v1.h>
+#include <LiquidCrystal_I2C.h>
 
 #include "log_process.h"
 #include "ntc.h"
@@ -10,22 +11,25 @@ extern TermostatProcess tp;
 extern double Setpoint, Input, Output;
 extern int8_t power;
 extern PID myPID;
+extern LiquidCrystal_I2C lcd;
 
 void LogProcess::setup()
 {
-    Serial.begin(9600);
+    //Serial.begin(9600);
 }
 
 void LogProcess::service()
 {
-    Serial.print("State ");
-    Serial.print(tp.getState());
-    Serial.print("; Power ");
-    Serial.print(power);
+    lcd.setCursor(1, 12);
+    lcd.print(tp.getState());
+//    Serial.print("State ");
+//    Serial.print(tp.getState());
+/*    Serial.print("; Power ");
+    Serial.print(power);*/
 //    Serial.print("; Pid mode ");
 //    Serial.print(myPID.GetMode());
-    Serial.print("; Produkt ");
-    Serial.print(probe.temp);
+/*    Serial.print("; Produkt ");
+    Serial.print(probe.temp);*/
 //    Serial.print("; Raw ");
 //    Serial.print(probe.getRaw());
 //    Serial.print("; Fan ");
@@ -38,7 +42,7 @@ void LogProcess::service()
 //    Serial.print(digitalRead(SPIN1));
 //    Serial.print("; PIN7 ");
 //    Serial.print(digitalRead(SPIN2));
-    Serial.print("; setTemp ");
+/*    Serial.print("; setTemp ");
     Serial.print(tp.setTemp);
     Serial.print("; Setpoint ");
     Serial.print(Setpoint);
@@ -46,5 +50,5 @@ void LogProcess::service()
     Serial.print(Input);
     Serial.print("; Output ");
     Serial.print(Output);
-    Serial.println(';');
+    Serial.println(';');*/
 }

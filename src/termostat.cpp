@@ -92,7 +92,7 @@ namespace Termostat {
 
     void heating()
     {
-        // Пауза в нагреве
+        // пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         static unsigned long endPause = 0;
 
         if (tp.regim() == 0)
@@ -272,9 +272,9 @@ void TermostatProcess::heaterHeating()
     double delta = setTemp - temp_camera;
     tp.cur_state = HEATING;
     myPID.SetMode(MANUAL);
-    // Добавляем по 5 градусов
+    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ 5 пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
     //setting = min(setTemp, temp_camera + 5);
-    // Более агрессивный нагрев
+    // пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
     if ((setTemp > temp_camera) && (delta > 5))
         setting = temp_camera + delta/2;
     else
@@ -289,13 +289,13 @@ String TermostatProcess::getState()
         case STOP:
             return "STOP";
         case HEATING:
-            return "HEATING";
+            return "HEAT";
         case WARMING:
-            return "WARMING";
+            return "WARM";
         case FRYING:
-            return "FRYING";
+            return "FRY";
         case COOKING:
-            return "COOKING";
+            return "COOK";
         case END:
             return "END";
         case WAIT:

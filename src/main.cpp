@@ -9,7 +9,8 @@ SerialCommand sCmd;
 
 #include <MsTimer2.h>
 
-#include <LCD_1602_RUS.h>
+//#include <LCD_1602_RUS.h>
+#include <LiquidCrystal_I2C.h>
 
 #include <ProcessScheduler.h>
 Scheduler sched;
@@ -25,7 +26,7 @@ DeviceAddress term_addr;
 //#include "ds_process.h"
 //DSProcess ds(sched, HIGH_PRIORITY, 750, &dt);
 double Setpoint, Input, Output;
-// Упраление мощностью ТЭНа по алгоритму Брезенхема
+// РЈРїСЂР°Р»РµРЅРёРµ РјРѕС‰РЅРѕСЃС‚СЊСЋ РўР­РќР° РїРѕ Р°Р»РіРѕСЂРёС‚РјСѓ Р‘СЂРµР·РµРЅС…РµРјР°
 volatile int8_t power = 0;
 void powerControl();
 void powerControl2();
@@ -37,8 +38,9 @@ NTCProbe probe(sched, HIGH_PRIORITY, SERVICE_CONSTANTLY, PROBE_NTC);
 TermostatProcess tp(sched, HIGH_PRIORITY, SERVICE_SECONDLY, Input, Setpoint, probe);
 
 #include "log_process.h"
-LogProcess lp(sched, LOW_PRIORITY, 5000);
-LCD_1602_RUS lcd(0x27, 16, 2);
+LogProcess lp(sched, LOW_PRIORITY, 1000);
+//LCD_1602_RUS lcd(0x27, 16, 2);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 #include <PID_v1.h>
 double Kp, Ki, Kd;
@@ -302,7 +304,7 @@ void setup()
     lcd.init(1, 1);
     lcd.backlight();
     lcd.setCursor(0,0);
-    lcd.print("Термостат v 1.0");
+    lcd.print("Termostat v 1.0");
 
     pinMode(ONE_WIRE_BUS, INPUT);
     dt.begin();
@@ -441,11 +443,11 @@ void unrecognized(const char *command)
     Serial.println("What?");
 }
 
-// Упраление мощностью ТЭНа по алгоритму Брезенхема, прерывание 10 раз в сек.
+// РЈРїСЂР°Р»РµРЅРёРµ РјРѕС‰РЅРѕСЃС‚СЊСЋ РўР­РќР° РїРѕ Р°Р»РіРѕСЂРёС‚РјСѓ Р‘СЂРµР·РµРЅС…РµРјР°, РїСЂРµСЂС‹РІР°РЅРёРµ 10 СЂР°Р· РІ СЃРµРє.
 void powerControl()
 {
-    // power - заданная мощность
-    // error - ошибка
+    // power - Р·Р°РґР°РЅРЅР°СЏ РјРѕС‰РЅРѕСЃС‚СЊ
+    // error - РѕС€РёР±РєР°
     static int8_t error = 0;
     int8_t reg = power + error;
     if (reg < 50)
@@ -460,11 +462,11 @@ void powerControl()
     }
 }
 
-// Упраление мощностью двумя ТЭНами по алгоритму Брезенхема, прерывание 10 раз в сек.
+// РЈРїСЂР°Р»РµРЅРёРµ РјРѕС‰РЅРѕСЃС‚СЊСЋ РґРІСѓРјСЏ РўР­РќР°РјРё РїРѕ Р°Р»РіРѕСЂРёС‚РјСѓ Р‘СЂРµР·РµРЅС…РµРјР°, РїСЂРµСЂС‹РІР°РЅРёРµ 10 СЂР°Р· РІ СЃРµРє.
 void powerControl2()
 {
-    // power - заданная мощность
-    // error - ошибка
+    // power - Р·Р°РґР°РЅРЅР°СЏ РјРѕС‰РЅРѕСЃС‚СЊ
+    // error - РѕС€РёР±РєР°
     static int8_t error = 0;
     int8_t reg = power + error;
     if (reg < 50)
