@@ -272,9 +272,6 @@ void TermostatProcess::heaterHeating()
     double delta = setTemp - temp_camera;
     tp.cur_state = HEATING;
     myPID.SetMode(MANUAL);
-    // ��������� �� 5 ��������
-    //setting = min(setTemp, temp_camera + 5);
-    // ����� ����������� ������
     if ((setTemp > temp_camera) && (delta > 5))
         setting = temp_camera + delta/2;
     else

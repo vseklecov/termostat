@@ -16,7 +16,7 @@ void NTCProbe::setup()
 {
     raw = analogRead(pin);
     samples = 1;
-    // Конвертировать значение АЦП в температуру
+    // РљРѕРЅРІРµСЂС‚РёСЂРѕРІР°С‚СЊ Р·РЅР°С‡РµРЅРёРµ РђР¦Рџ РІ С‚РµРјРїРµСЂР°С‚СѓСЂСѓ
     temp = calc_temperature(raw<<5);
 }
 
@@ -41,14 +41,14 @@ float NTCProbe::getTempC()
     return tC;*/
 }
 
-// Функция вычисляет значение температуры в десятых долях градусов Цельсия
-// в зависимости от суммарного значения АЦП.
+// Р¤СѓРЅРєС†РёСЏ РІС‹С‡РёСЃР»СЏРµС‚ Р·РЅР°С‡РµРЅРёРµ С‚РµРјРїРµСЂР°С‚СѓСЂС‹ РІ РґРµСЃСЏС‚С‹С… РґРѕР»СЏС… РіСЂР°РґСѓСЃРѕРІ Р¦РµР»СЊСЃРёСЏ
+// РІ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё РѕС‚ СЃСѓРјРјР°СЂРЅРѕРіРѕ Р·РЅР°С‡РµРЅРёСЏ РђР¦Рџ.
 int16_t NTCProbe::calc_temperature(temperature_table_entry_type adcsum) {
   temperature_table_index_type l = 0;
   temperature_table_index_type r = (sizeof(termo_table) / sizeof(termo_table[0])) - 1;
   temperature_table_entry_type thigh = TEMPERATURE_TABLE_READ(r);
   
-  // Проверка выхода за пределы и граничных значений
+  // РџСЂРѕРІРµСЂРєР° РІС‹С…РѕРґР° Р·Р° РїСЂРµРґРµР»С‹ Рё РіСЂР°РЅРёС‡РЅС‹С… Р·РЅР°С‡РµРЅРёР№
   if (adcsum <= thigh) {
     #ifdef TEMPERATURE_OVER
       if (adcsum < thigh) 
@@ -65,7 +65,7 @@ int16_t NTCProbe::calc_temperature(temperature_table_entry_type adcsum) {
     return TEMPERATURE_TABLE_START;
   }
 
-  // Двоичный поиск по таблице
+  // Р”РІРѕРёС‡РЅС‹Р№ РїРѕРёСЃРє РїРѕ С‚Р°Р±Р»РёС†Рµ
   while ((r - l) > 1) {
     temperature_table_index_type m = (l + r) >> 1;
     temperature_table_entry_type mid = TEMPERATURE_TABLE_READ(m);
@@ -83,7 +83,7 @@ int16_t NTCProbe::calc_temperature(temperature_table_entry_type adcsum) {
   temperature_table_entry_type vd = vl - vr;
   int16_t res = TEMPERATURE_TABLE_START + r * TEMPERATURE_TABLE_STEP; 
   if (vd) {
-    // Линейная интерполяция
+    // Р›РёРЅРµР№РЅР°СЏ РёРЅС‚РµСЂРїРѕР»СЏС†РёСЏ
     res -= ((TEMPERATURE_TABLE_STEP * (int32_t)(adcsum - vr) + (vd >> 1)) / vd);
   }
   return res;
