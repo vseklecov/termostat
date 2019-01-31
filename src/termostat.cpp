@@ -290,14 +290,14 @@ String TermostatProcess::getState()
         case WARMING:
             return "WARM";
         case FRYING:
-            return "FRY";
+            return "FRY ";
         case COOKING:
             return "COOK";
         case END:
-            return "END";
+            return "END ";
         case WAIT:
             return "WAIT";
         default:
-            return "NAN";
+            return "NAN ";
     }
 }

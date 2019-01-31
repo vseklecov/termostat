@@ -9,7 +9,6 @@ SerialCommand sCmd;
 
 #include <MsTimer2.h>
 
-//#include <LCD_1602_RUS.h>
 #include <LiquidCrystal_I2C.h>
 
 #include <ProcessScheduler.h>
@@ -39,12 +38,280 @@ TermostatProcess tp(sched, HIGH_PRIORITY, SERVICE_SECONDLY, Input, Setpoint, pro
 
 #include "log_process.h"
 LogProcess lp(sched, LOW_PRIORITY, 1000);
-//LCD_1602_RUS lcd(0x27, 16, 2);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 #include <PID_v1.h>
 double Kp, Ki, Kd;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, P_ON_E, DIRECT);
+
+void setKp();
+void setKi();
+void setKd();
+void getParam();
+void unrecognized(const char *);
+
+void writeEEPROM()
+{
+    unsigned int i;
+    int8_t sum;
+
+    i = tp.writeEEPROM();
+    EEPROM.put(i, Kp);
+    i += sizeof(Kp);
+    EEPROM.put(i, Ki);
+    i += sizeof(Ki);
+    EEPROM.put(i, Kd);
+    sum = 0;
+    for (i = 0; i < LENGTH_PARAM_EEPROM; i++)
+        sum += EEPROM.read(i);
+    EEPROM.write(i, sum ^ 0xE5);
+}
+
+void readEEPROM()
+{
+    unsigned int i = 0;
+    int8_t sum = 0;
+
+    for (; i < LENGTH_PARAM_EEPROM; i++)
+        sum += EEPROM.read(i);
+    //if ((sum ^ 0xE5) == EEPROM.read(i))
+    //{
+        i = tp.readEEPROM();
+        Kp = EEPROM.get(i, Kp);
+        i += sizeof(Kp);
+        Ki = EEPROM.get(i, Ki);
+        i += sizeof(Ki);
+        Kd = EEPROM.get(i, Kd);
+    //}
+    //else
+    //{
+    //    i = tp.initEEPROM();
+    //    Kp = 20;
+    //    EEPROM.put(i, Kp);
+    //    i += sizeof(Kp);
+    //    Ki = 0.01;
+    //    EEPROM.put(i, Ki);
+    //    i += sizeof(Ki);
+    //    Kd = 10;
+    //    EEPROM.put(i, Kd);
+    //    i += sizeof(Kd);
+    //    sum = 0;
+    //    for (i = 0; i < LENGTH_PARAM_EEPROM; i++)
+    //        sum += EEPROM.read(i);
+    //    EEPROM.write(i, sum ^ 0xE5);
+    //}
+}
+
+void setup()
+{
+
+    Serial.begin(9600);
+    
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Termostat v 1.0");
+
+    pinMode(ONE_WIRE_BUS, INPUT);
+    dt.begin();
+    if (dt.getDS18Count() > 0)
+    {
+        dt.getAddress(term_addr, 0);
+        dt.setResolution(9);
+    }
+
+    probe.add(true);
+    tp.add(true);
+    lp.add(true);
+
+    pinMode(FAN_PIN, OUTPUT);
+
+    pinMode(HEATER_PIN, OUTPUT);
+    //setPwmFrequencyUNO(HEATER_PIN, 7);
+
+    //pinMode(STEAM_PIN, OUTPUT);
+    //pinMode(SMOKE_PIN, OUTPUT);
+    pinMode(BUZZER_PIN, OUTPUT);
+
+    pinMode(SPIN1, INPUT);
+    pinMode(SPIN2, INPUT);
+
+    readEEPROM();
+    myPID.SetTunings(Kp, Ki, Kp);
+    myPID.SetMode(MANUAL);
+    myPID.SetOutputLimits(0, 100);
+
+    sCmd.addCommand("Kp", setKp);
+    sCmd.addCommand("Ki", setKi);
+    sCmd.addCommand("Kd", setKd);
+    sCmd.addCommand("W", writeEEPROM);
+    sCmd.addCommand("GET", getParam);
+    sCmd.setDefaultHandler(unrecognized);
+
+    MsTimer2::set(100, powerControl2);
+    MsTimer2::start();
+}
+
+bool getTempCamera()
+{
+    float temp;
+
+    if (dt.getDS18Count() == 0)
+    {
+        dt.begin();
+        if (dt.getDS18Count() > 0)
+        {
+            dt.getAddress(term_addr, 0);
+            dt.setResolution(9);
+        } else
+            return false;
+    }
+    dt.requestTemperatures();
+    temp = dt.getTempC(term_addr);
+    if (temp == DEVICE_DISCONNECTED_C)
+        return false;
+    else
+        Input = temp;
+    
+    return true;
+}
+
+void loop()
+{
+    if (getTempCamera())
+    {
+        switch (tp.cur_state)
+        {
+        case tp.HEATING:
+        case tp.WARMING:
+        case tp.FRYING:
+        case tp.WAIT:
+        case tp.COOKING:
+            if (myPID.GetMode() == MANUAL)
+                myPID.SetMode(AUTOMATIC);
+            if (myPID.Compute())
+            {
+                if (Input > Setpoint)
+                    power = 0;
+                else
+                    power = Output;
+            }
+            break;
+        default:
+            power = 0;
+            break;
+        };
+    } else
+    {
+        power = 0;
+    }
+    
+    sched.run();
+    sCmd.readSerial();
+}
+
+void setKp()
+{
+    char *arg;
+
+    arg = sCmd.next();
+    if (arg != NULL)
+        Kp = atof(arg);
+    myPID.SetTunings(Kp, Ki, Kp);
+}
+
+void setKi()
+{
+    char *arg;
+
+    arg = sCmd.next();
+    if (arg != NULL)
+        Ki = atof(arg);
+    myPID.SetTunings(Kp, Ki, Kp);
+}
+
+void setKd()
+{
+    char *arg;
+
+    arg = sCmd.next();
+    if (arg != NULL)
+        Kd = atof(arg);
+    myPID.SetTunings(Kp, Ki, Kp);
+}
+
+void getParam()
+{
+    double temp;
+    unsigned int i;
+
+    Serial.print("Kp=");
+    Serial.print(Kp);
+    Serial.print("; Ki=");
+    Serial.print(Ki);
+    Serial.print("; Kd=");
+    Serial.print(Kd);
+    Serial.print("; EEPROM=");
+    for (i=0; i<LENGTH_PARAM_TERMOSTAT; i+=sizeof(int8_t))
+    {
+        Serial.print(EEPROM.read(i));
+        Serial.print(", ");
+    }
+    Serial.print(EEPROM.get(i, temp));
+    Serial.print(", ");
+    i += sizeof(Kp);
+    Serial.print(EEPROM.get(i, temp));
+    Serial.print(", ");
+    i += sizeof(Ki);
+    Serial.print(EEPROM.get(i, temp));
+    Serial.print(", CRC=");
+    i += sizeof(Kd);
+    Serial.print(EEPROM.read(i), HEX);
+    Serial.println(';');
+}
+
+void unrecognized(const char *command)
+{
+    Serial.println("What?");
+}
+
+// Упраление мощностью ТЭНа по алгоритму Брезенхема, прерывание 10 раз в сек.
+void powerControl()
+{
+    // power - заданная мощность
+    // error - ошибка
+    static int8_t error = 0;
+    int8_t reg = power + error;
+    if (reg < 50)
+    {
+        HEATER_OFF;
+        error = reg;
+    }
+    else
+    {
+        HEATER_ON;
+        error = reg - 100;
+    }
+}
+
+// Упраление мощностью двумя ТЭНами по алгоритму Брезенхема, прерывание 10 раз в сек.
+void powerControl2()
+{
+    // power - заданная мощность
+    // error - ошибка
+    static int8_t error = 0;
+    int8_t reg = power + error;
+    if (reg < 50)
+    {
+        HEATER12_OFF;
+        error = reg;
+    }
+    else
+    {
+        HEATER12_ON;
+        error = reg - 100;
+    }
+}
 
 /****** Change PWM frecuency ARDUINO UNO***** 
 Function:  		setPwmFrequencyUNO(pin,divisor);
@@ -237,246 +504,3 @@ For pins 2 to 13 EXCEPT 13,4:
         return;
     }
 }*/
-
-void setKp();
-void setKi();
-void setKd();
-void getParam();
-void unrecognized(const char *);
-
-void writeEEPROM()
-{
-    unsigned int i;
-    int8_t sum;
-
-    i = tp.writeEEPROM();
-    EEPROM.put(i, Kp);
-    i += sizeof(Kp);
-    EEPROM.put(i, Ki);
-    i += sizeof(Ki);
-    EEPROM.put(i, Kd);
-    sum = 0;
-    for (i = 0; i < LENGTH_PARAM_EEPROM; i++)
-        sum += EEPROM.read(i);
-    EEPROM.write(i, sum ^ 0xE5);
-}
-
-void readEEPROM()
-{
-    unsigned int i = 0;
-    int8_t sum = 0;
-
-    for (; i < LENGTH_PARAM_EEPROM; i++)
-        sum += EEPROM.read(i);
-    //if ((sum ^ 0xE5) == EEPROM.read(i))
-    //{
-        i = tp.readEEPROM();
-        Kp = EEPROM.get(i, Kp);
-        i += sizeof(Kp);
-        Ki = EEPROM.get(i, Ki);
-        i += sizeof(Ki);
-        Kd = EEPROM.get(i, Kd);
-    //}
-    //else
-    //{
-    //    i = tp.initEEPROM();
-    //    Kp = 20;
-    //    EEPROM.put(i, Kp);
-    //    i += sizeof(Kp);
-    //    Ki = 0.01;
-    //    EEPROM.put(i, Ki);
-    //    i += sizeof(Ki);
-    //    Kd = 10;
-    //    EEPROM.put(i, Kd);
-    //    i += sizeof(Kd);
-    //    sum = 0;
-    //    for (i = 0; i < LENGTH_PARAM_EEPROM; i++)
-    //        sum += EEPROM.read(i);
-    //    EEPROM.write(i, sum ^ 0xE5);
-    //}
-}
-
-void setup()
-{
-
-    Serial.begin(9600);
-    
-    lcd.init(1, 1);
-    lcd.backlight();
-    lcd.setCursor(0,0);
-    lcd.print("Termostat v 1.0");
-
-    pinMode(ONE_WIRE_BUS, INPUT);
-    dt.begin();
-    while (dt.getDS18Count() == 0)
-    {
-        Serial.println("Setup DS18b20 not found");
-        delay(1000);
-        dt.begin();
-    }
-    dt.getAddress(term_addr, 0);
-    dt.setResolution(9);
-
-    probe.add(true);
-    tp.add(true);
-    lp.add(true);
-
-    pinMode(FAN_PIN, OUTPUT);
-
-    pinMode(HEATER_PIN, OUTPUT);
-    //setPwmFrequencyUNO(HEATER_PIN, 7);
-
-    //pinMode(STEAM_PIN, OUTPUT);
-    //pinMode(SMOKE_PIN, OUTPUT);
-    pinMode(BUZZER_PIN, OUTPUT);
-
-    pinMode(SPIN1, INPUT);
-    pinMode(SPIN2, INPUT);
-
-    readEEPROM();
-    myPID.SetTunings(Kp, Ki, Kp);
-    myPID.SetMode(MANUAL);
-    myPID.SetOutputLimits(0, 100);
-
-    sCmd.addCommand("Kp", setKp);
-    sCmd.addCommand("Ki", setKi);
-    sCmd.addCommand("Kd", setKd);
-    sCmd.addCommand("W", writeEEPROM);
-    sCmd.addCommand("GET", getParam);
-    sCmd.setDefaultHandler(unrecognized);
-
-    MsTimer2::set(100, powerControl2);
-    MsTimer2::start();
-}
-
-void loop()
-{
-    dt.requestTemperatures();
-    Input = dt.getTempC(term_addr);
-    switch (tp.cur_state)
-    {
-    case tp.HEATING:
-    case tp.WARMING:
-    case tp.FRYING:
-    case tp.WAIT:
-    case tp.COOKING:
-        if (myPID.GetMode() == MANUAL)
-            myPID.SetMode(AUTOMATIC);
-        if (myPID.Compute())
-        {
-            if (Input > Setpoint)
-                power = 0;
-            else
-                power = Output;
-        }
-        break;
-    default:
-        power = 0;
-        break;
-    };
-    sched.run();
-    sCmd.readSerial();
-}
-
-void setKp()
-{
-    char *arg;
-
-    arg = sCmd.next();
-    if (arg != NULL)
-        Kp = atof(arg);
-    myPID.SetTunings(Kp, Ki, Kp);
-}
-
-void setKi()
-{
-    char *arg;
-
-    arg = sCmd.next();
-    if (arg != NULL)
-        Ki = atof(arg);
-    myPID.SetTunings(Kp, Ki, Kp);
-}
-
-void setKd()
-{
-    char *arg;
-
-    arg = sCmd.next();
-    if (arg != NULL)
-        Kd = atof(arg);
-    myPID.SetTunings(Kp, Ki, Kp);
-}
-
-void getParam()
-{
-    double temp;
-    unsigned int i;
-
-    Serial.print("Kp=");
-    Serial.print(Kp);
-    Serial.print("; Ki=");
-    Serial.print(Ki);
-    Serial.print("; Kd=");
-    Serial.print(Kd);
-    Serial.print("; EEPROM=");
-    for (i=0; i<LENGTH_PARAM_TERMOSTAT; i+=sizeof(int8_t))
-    {
-        Serial.print(EEPROM.read(i));
-        Serial.print(", ");
-    }
-    Serial.print(EEPROM.get(i, temp));
-    Serial.print(", ");
-    i += sizeof(Kp);
-    Serial.print(EEPROM.get(i, temp));
-    Serial.print(", ");
-    i += sizeof(Ki);
-    Serial.print(EEPROM.get(i, temp));
-    Serial.print(", CRC=");
-    i += sizeof(Kd);
-    Serial.print(EEPROM.read(i), HEX);
-    Serial.println(';');
-}
-
-void unrecognized(const char *command)
-{
-    Serial.println("What?");
-}
-
-// Упраление мощностью ТЭНа по алгоритму Брезенхема, прерывание 10 раз в сек.
-void powerControl()
-{
-    // power - заданная мощность
-    // error - ошибка
-    static int8_t error = 0;
-    int8_t reg = power + error;
-    if (reg < 50)
-    {
-        HEATER_OFF;
-        error = reg;
-    }
-    else
-    {
-        HEATER_ON;
-        error = reg - 100;
-    }
-}
-
-// Упраление мощностью двумя ТЭНами по алгоритму Брезенхема, прерывание 10 раз в сек.
-void powerControl2()
-{
-    // power - заданная мощность
-    // error - ошибка
-    static int8_t error = 0;
-    int8_t reg = power + error;
-    if (reg < 50)
-    {
-        HEATER12_OFF;
-        error = reg;
-    }
-    else
-    {
-        HEATER12_ON;
-        error = reg - 100;
-    }
-}

@@ -18,8 +18,18 @@ void LogProcess::setup()
     //Serial.begin(9600);
 }
 
+char buffer[17];
+
 void LogProcess::service()
 {
+    lcd.setCursor(1, 1);
+    lcd.print("Tc=");
+    sprintf(buffer, "%2d", int(Input));
+    lcd.print(buffer);
+    lcd.setCursor(2, 1);
+    lcd.print("Tp=");
+    sprintf(buffer, "%2d", probe.temp);
+    lcd.print(buffer);
     lcd.setCursor(1, 12);
     lcd.print(tp.getState());
 //    Serial.print("State ");
