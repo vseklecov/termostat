@@ -22,16 +22,17 @@ char buffer[17];
 
 void LogProcess::service()
 {
-    lcd.setCursor(1, 1);
-    lcd.print("Tc=");
-    sprintf(buffer, "%2d", int(Input));
+    // Первая строка
+    lcd.setCursor(0, 0);
+    sprintf(buffer, "Tc=%3d      ", int(Input));
     lcd.print(buffer);
-    lcd.setCursor(2, 1);
-    lcd.print("Tp=");
-    sprintf(buffer, "%2d", probe.temp);
-    lcd.print(buffer);
-    lcd.setCursor(1, 12);
+    lcd.setCursor(12, 0);
     lcd.print(tp.getState());
+    
+    // Вторая строка
+    lcd.setCursor(0, 1);
+    sprintf(buffer, "Tp=%3d    P=%3d%%", probe.temp, power);
+    lcd.print(buffer);
 //    Serial.print("State ");
 //    Serial.print(tp.getState());
 /*    Serial.print("; Power ");

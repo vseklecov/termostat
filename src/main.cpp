@@ -110,7 +110,7 @@ void setup()
     lcd.init();
     lcd.backlight();
     lcd.setCursor(0, 0);
-    lcd.print("Termostat v 1.0");
+    lcd.print("TEPMOCTAT 1.0");
 
     pinMode(ONE_WIRE_BUS, INPUT);
     dt.begin();
